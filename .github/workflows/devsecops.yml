@@ -1,0 +1,40 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  security-scan:
+    name: SAST + Syntax Check (Insecure & Secure)
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        app: [app-insecure, app-secure]
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flask bandit
+
+      - name: Run Bandit (SAST)
+        run: |
+          bandit -r . || true
+
+      - name: Syntax check (compile app.py)
+        run: |
+          python -m py_compile app.py
