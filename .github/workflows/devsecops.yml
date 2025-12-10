@@ -6,16 +6,8 @@ on:
 
 jobs:
   security-scan:
-    name: SAST + Syntax Check (Insecure & Secure)
+    name: SAST + Syntax check for all apps
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        app: [app-insecure, app-secure]
-
-    defaults:
-      run:
-        working-directory: ${{ matrix.app }}
 
     steps:
       - name: Checkout repository
@@ -31,10 +23,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install flask bandit
 
-      - name: Run Bandit (SAST)
+      - name: Run Bandit on entire repo (SAST)
         run: |
           bandit -r . || true
 
-      - name: Syntax check (compile app.py)
+      - name: Syntax check for all app.py files
         run: |
-          python -m py_compile app.py
+          find . -name "app.py" -print -exec python -m py_compile {} \;
+
