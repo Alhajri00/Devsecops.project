@@ -11,12 +11,13 @@ from flask import (
     session,
 )
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "change_me_later"
+app.secret_key = "change_me_later"  # غيّرها لو حاب في النسخة النهائية
 app.permanent_session_lifetime = timedelta(minutes=30)
 
-# Paths
+# ===== Paths =====
 basedir = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(basedir, "lostfound.db")
 
@@ -24,10 +25,14 @@ UPLOAD_FOLDER = os.path.join(basedir, "static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-# موجود لكن ما نستخدمه هنا كحماية (نذكره في النسخة الآمنة)
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
 
+def allowed_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+# ===== SQLite Helpers =====
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -66,15 +71,16 @@ def init_db():
 
 init_db()
 
-# Weak auth: hardcoded, plaintext, simple passwords
+# ===== Users (Secure: hashed passwords) =====
 USERS = {
-    "fatima": {"password": "stud123", "role": "student"},
-    "ali": {"password": "stud123", "role": "student"},
-    "salim": {"password": "stud123", "role": "student"},
-    "office_admin": {"password": "secure123", "role": "admin"},
+    "ali": {"password": generate_password_hash("stud123"), "role": "student"},
+    "fatima": {"password": generate_password_hash("stud123"), "role": "student"},
+    "salim": {"password": generate_password_hash("stud123"), "role": "student"},
+    "office_admin": {"password": generate_password_hash("secure123"), "role": "admin"},
 }
 
 
+# ===== Routes =====
 @app.route("/")
 def index():
     if "username" in session:
@@ -90,7 +96,8 @@ def login():
         password = request.form.get("password", "").strip()
 
         user = USERS.get(username)
-        if user and user["password"] == password:
+        if user and check_password_hash(user["password"], password):
+            session.permanent = True
             session["username"] = username
             session["role"] = user["role"]
             return redirect(url_for("dashboard"))
@@ -104,7 +111,7 @@ def login():
 def dashboard():
     if "username" not in session:
         return redirect(url_for("login"))
-    role = session.get("role")
+    role = session.get("role", "student")
     username = session.get("username")
     return render_template("dashboard.html", role=role, username=username)
 
@@ -114,20 +121,15 @@ def items():
     if "username" not in session:
         return redirect(url_for("login"))
 
-    role = session.get("role")
+    role = session.get("role", "student")
     q = request.args.get("q", "").strip()
 
     conn = get_db()
 
     if q:
-        # ❌ Insecure SQL: SQL Injection via string concatenation
-        sql = (
-            "SELECT * FROM items "
-            "WHERE title LIKE '%" + q + "%' "
-            "OR description LIKE '%" + q + "%' "
-            "ORDER BY id;"
-        )
-        rows = conn.execute(sql).fetchall()
+        # ✅ Secure: parameterized query (no SQL injection)
+        sql = "SELECT * FROM items WHERE title LIKE ? OR description LIKE ? ORDER BY id;"
+        rows = conn.execute(sql, (f"%{q}%", f"%{q}%")).fetchall()
     else:
         rows = conn.execute("SELECT * FROM items ORDER BY id;").fetchall()
 
@@ -141,7 +143,7 @@ def report():
     if "username" not in session:
         return redirect(url_for("login"))
 
-    role = session.get("role")
+    role = session.get("role", "student")
     error = None
 
     if request.method == "POST":
@@ -152,27 +154,40 @@ def report():
         image_file = request.files.get("image")
         image_filename = None
 
+        # Basic validation
         if not title or not location:
             error = "Title and location are required."
-        else:
-            # ❌ Insecure File Upload: no validation on file type
-            if image_file and image_file.filename:
+            return render_template("report.html", role=role, error=error)
+
+        if len(title) > 100:
+            error = "Title is too long (max 100 characters)."
+            return render_template("report.html", role=role, error=error)
+
+        if len(description) > 500:
+            error = "Description is too long (max 500 characters)."
+            return render_template("report.html", role=role, error=error)
+
+        # ✅ Secure file upload: only images allowed
+        if image_file and image_file.filename:
+            if allowed_file(image_file.filename):
                 filename = secure_filename(image_file.filename)
                 image_filename = filename
                 save_path = os.path.join(app.config["UPLOAD_FOLDER"], image_filename)
                 image_file.save(save_path)
+            else:
+                error = "Invalid file type. Allowed: png, jpg, jpeg, gif."
+                return render_template("report.html", role=role, error=error)
 
-            # إضافة العنصر في SQLite
-            conn = get_db()
-            conn.execute(
-                "INSERT INTO items (type, title, location, status, description, image) "
-                "VALUES (?, ?, ?, ?, ?, ?);",
-                (item_type, title, location, "Pending", description, image_filename),
-            )
-            conn.commit()
-            conn.close()
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO items (type, title, location, status, description, image) "
+            "VALUES (?, ?, ?, ?, ?, ?);",
+            (item_type, title, location, "Pending", description, image_filename),
+        )
+        conn.commit()
+        conn.close()
 
-            return redirect(url_for("items"))
+        return redirect(url_for("items"))
 
     return render_template("report.html", role=role, error=error)
 
