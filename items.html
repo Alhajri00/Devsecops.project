@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Items - Campus Lost & Found{% endblock %}
+
+{% block content %}
+  <h3 class="mb-3">Lost & Found Items</h3>
+  <p class="text-muted">List of all reported items on campus.</p>
+
+  <!-- 🔍 Insecure search (قابل لـ SQL Injection) -->
+  <form method="get" action="{{ url_for('items') }}" class="row g-2 mb-3">
+    <div class="col-md-6">
+      <input type="text"
+             name="q"
+             class="form-control"
+             placeholder="Search by title or description"
+             value="{{ q or '' }}">
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-outline-primary w-100">Search</button>
+    </div>
+    <div class="col-md-3">
+      <a href="{{ url_for('items') }}" class="btn btn-secondary w-100">Reset</a>
+    </div>
+  </form>
+
+  <table class="table table-striped table-bordered">
+    <thead class="table-dark">
+      <tr>
+        <th>#</th>
+        <th>Type</th>
+        <th>Title</th>
+        <th>Location</th>
+        <th>Status</th>
+        <th>Description</th>
+        <th>Photo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item["id"] }}</td>
+        <td>{{ item["type"] }}</td>
+        <!-- ❌ XSS: نعرض title بدون فلترة -->
+        <td>{{ item["title"] }}</td>
+        <td>{{ item["location"] }}</td>
+        <td>{{ item["status"] }}</td>
+        <!-- ❌ XSS: نعرض description بدون فلترة -->
+        <td>{{ item["description"] }}</td>
+        <td>
+          {% if item["image"] %}
+            <img src="{{ url_for('static', filename='uploads/' ~ item['image']) }}"
+                 style="max-width: 80px; max-height: 80px;">
+          {% else %}
+            -
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if role == "student" %}
+  <a href="{{ url_for('report') }}" class="btn btn-primary mt-3">Report Item</a>
+  {% endif %}
+
+{% endblock %}
